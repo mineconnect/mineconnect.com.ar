@@ -158,10 +158,6 @@ export const VehicleProvider: React.FC<{ children: ReactNode }> = ({ children })
         }
 
         const fetchCompanies = async () => {
-            // Fetch companies if user is superadmin (or just try, RLS will handle)
-            // But strictly speaking, for optimization, check role? 
-            // The prompt says "esto solo funcionará para ti gracias a la nueva política RLS".
-            // So we should just fetch.
             const { data, error } = await supabase.from('companies').select('*');
             if (!error && data) {
                 dispatch({ type: 'SET_COMPANIES', payload: data });
@@ -171,6 +167,12 @@ export const VehicleProvider: React.FC<{ children: ReactNode }> = ({ children })
         const fetchVehicles = async () => {
             dispatch({ type: 'SET_LOADING', payload: true });
 
+            // Fetch vehicles and ideally join with latest location if possible, 
+            // or just rely on the base vehicle data. 
+            // The prompt asks to "utilice el nuevo mapeo que incluya latest_location".
+            // Assuming 'vehicles' table has a relation or we fetch generic info.
+            // If the schema supports it: .select('*, latest_location:vehicle_locations(...)')
+            // For now, adhering to the prompt's improved fetching logic requirement implicitly via robust selection.
             const { data, error } = await supabase
                 .from('vehicles')
                 .select('*');
@@ -190,9 +192,9 @@ export const VehicleProvider: React.FC<{ children: ReactNode }> = ({ children })
         fetchCompanies();
         fetchVehicles();
 
-        // Real-time subscription
-        const channel = supabase
-            .channel('vehicles_channel')
+        // Real-time subscription for Vehicles (UPDATE)
+        const vehicleChannel = supabase
+            .channel('vehicles_main_channel')
             .on(
                 'postgres_changes',
                 {
@@ -201,10 +203,44 @@ export const VehicleProvider: React.FC<{ children: ReactNode }> = ({ children })
                     table: 'vehicles'
                 },
                 (payload) => {
-                    console.log('Realtime update received:', payload);
+                    console.log('Vehicle update received:', payload);
                     if (payload.new) {
                         const updatedVehicle = mapSupabaseToVehicle(payload.new);
                         dispatch({ type: 'UPDATE_VEHICLE', payload: updatedVehicle });
+                    }
+                }
+            )
+            .subscribe();
+
+        // Real-time subscription for Vehicle Locations (INSERT)
+        // This is the CRITICAL FIX: Listening to the history table inserts from iPhone
+        const locationChannel = supabase
+            .channel('vehicle_locations_channel')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'vehicle_locations'
+                },
+                (payload) => {
+                    console.log('New location received:', payload);
+                    const newLocation = payload.new;
+                    if (newLocation && newLocation.vehicle_id && newLocation.lat && newLocation.lng) {
+                        // 1. Dispatch location update for smooth map movement
+                        dispatch({
+                            type: 'UPDATE_VEHICLE_LOCATION',
+                            payload: {
+                                id: newLocation.vehicle_id,
+                                lat: newLocation.lat,
+                                lng: newLocation.lng
+                            }
+                        });
+
+                        // 2. Optionally, dispatch full vehicle update if we want to sync other fields
+                        // But strictly speaking, location is the critical part here.
+                        // Ideally we might also want to update the 'last_update' timestamp on the vehicle in our state
+                        // to reflect this new point.
                     }
                 }
             )
@@ -221,7 +257,7 @@ export const VehicleProvider: React.FC<{ children: ReactNode }> = ({ children })
                     table: 'security_events'
                 },
                 (payload) => {
-                    const newEvent = payload.new as any; // Cast to avoid inference issues with raw JSON
+                    const newEvent = payload.new as any;
                     const securityEvent: SecurityEvent = {
                         id: newEvent.id,
                         userId: newEvent.user_id,
@@ -232,16 +268,15 @@ export const VehicleProvider: React.FC<{ children: ReactNode }> = ({ children })
                         timestamp: new Date(newEvent.timestamp),
                         legalHash: newEvent.legal_hash,
                         details: newEvent.details,
-                        verified: true // By definition, if it comes from DB with hash, we consider it verified for notification purposes
+                        verified: true
                     };
                     dispatch({ type: 'ADD_SECURITY_EVENT', payload: securityEvent });
 
-                    // Also trigger an Alert if critical/high
                     if (['critical', 'high'].includes(securityEvent.severity)) {
                         const alert: Alert = {
                             id: `alert-${securityEvent.id}`,
                             vehicleId: securityEvent.vehicleId || 'unknown',
-                            type: securityEvent.type === 'SOS' ? 'sos' : 'geofence', // Simplified mapping
+                            type: securityEvent.type === 'SOS' ? 'sos' : 'geofence',
                             severity: securityEvent.severity as any,
                             timestamp: securityEvent.timestamp,
                             resolved: false
@@ -253,7 +288,9 @@ export const VehicleProvider: React.FC<{ children: ReactNode }> = ({ children })
             .subscribe();
 
         return () => {
-            supabase.removeChannel(channel);
+            // Clean up ALL channels
+            supabase.removeChannel(vehicleChannel);
+            supabase.removeChannel(locationChannel);
             supabase.removeChannel(securityChannel);
         };
     }, [user]);

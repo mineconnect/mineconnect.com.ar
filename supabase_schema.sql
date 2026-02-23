@@ -16,17 +16,18 @@ create table vehicles (
 alter table vehicles enable row level security;
 
 -- Create policy to allow read access for everyone (anon)
-create policy "Allow public read access"
+-- Create policy to allow read access for authenticated users only
+create policy "Allow authenticated read"
   on vehicles
   for select
-  to anon
+  to authenticated
   using (true);
 
--- Create policy to allow updates for everyone (demo purposes)
-create policy "Allow public update access"
+-- Create policy to allow updates for authenticated users only
+create policy "Allow authenticated update"
   on vehicles
   for update
-  to anon
+  to authenticated
   using (true)
   with check (true);
 

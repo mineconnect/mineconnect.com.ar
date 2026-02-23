@@ -79,7 +79,7 @@ const SatelliteMap: React.FC = () => {
     // Memoize the center to avoid unnecessary calculations
     const center: [number, number] = useMemo(() => {
         // Centro de Emergencia: Base Minera si falla todo
-        return [-24.84, -65.71];
+        return [-28.47, -65.77];
     }, []);
 
     // Memoize the markers list

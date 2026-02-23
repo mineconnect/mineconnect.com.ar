@@ -1,5 +1,7 @@
+import Tracker from './components/Tracker';
 import { useState } from 'react';
 import { Toaster } from 'sonner';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Layout/Sidebar';
 import SatelliteMap from './components/Map/SatelliteMap';
 import { Analytics } from './pages/Analytics';
@@ -8,8 +10,9 @@ import { useUI } from './context/UIContext';
 import { useAuth } from './context/AuthContext';
 import { useVehicles } from './context/VehicleContext';
 import Login from './components/Auth/Login';
+import Presentation from './components/Presentation/Presentation';
 
-function App() {
+function Platform() {
     const { activeTab } = useUI();
     const { session, loading } = useAuth();
     const { logSecurityEvent } = useVehicles();
@@ -56,6 +59,11 @@ function App() {
                     </div>
                 )}
 
+                {/* Tracker Overlay - Mobile Interface */}
+                <div style={{ position: 'absolute', bottom: '2rem', left: '50%', transform: 'translateX(-50%)', zIndex: 9999 }}>
+                    <Tracker />
+                </div>
+
                 {/* Global Overlays: SOS Button */}
                 <button
                     onClick={handleSOS}
@@ -75,6 +83,16 @@ function App() {
             </main>
             <Toaster position="top-right" expand={true} richColors closeButton />
         </div>
+    );
+}
+
+function App() {
+    return (
+        <Routes>
+            <Route path="/" element={<Presentation />} />
+            <Route path="/sat/*" element={<Platform />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
     );
 }
 
